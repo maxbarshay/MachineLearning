@@ -1,6 +1,6 @@
 ---
 title: "Stat464"
-author: "Megan Johnson"
+author: "Max Barshay and Megan Johnson"
 date: "5/24/2019"
 output: html_document
 ---
