@@ -1,0 +1,674 @@
+---
+title: "Stat464"
+author: "Megan Johnson"
+date: "5/24/2019"
+output: html_document
+---
+
+##Introduction
+
+We decided to do our final project on an NFL quarterback data set with information on quarterback stats from 1996 to 2016. The variables that were included in the kaggle data set that we chose to use were: Quarterback Name (qb), Attempts (att), Completions (cmp), Yards (yds), Yards per Attempt (ypa), Touchdowns (td), Interceptions (int), Longest Throw (lg), Sacks (sack), Loss of Yards (loss), The NFL's Quarterback Rating for the game (rate), Total points scored in the game (game_points), and Year (year). Out of all of these variables, none really popped out to use as a response variable, so we decided to use MVP as our response variable, acknowledging and accepting the challenge that would come with only having 17 “yes” values for our response variable. Some cleaning of the data was necessary in order to get it ready for analysis. There were observations in a given year that had passing stats for less than five games (some of them were punters used on trick plays). I used my domain knowledge to conclude that there is virtually no chance these players could win MVP, so they would only further the ratio between players that won MVP in a given year and those that didn’t. The major problem that we faced was that there were many repeat values across various years (Tom Brady had stats for almost every single year in our data), so we had to group by year and then create a new variable name_year that combined the name of the quarterback and the year so that we could have unique observations. We then got rid of the year variable as it was not necessary at this point.
+
+Another key decision that had to be made was whether or not the variables should be summed, averaged or “maxed”. This decision once again came from domain knowledge. We decided to sum the following variables: attempts, completions, yards, touchdowns, interceptions, sacks, total yards lost, and game points. We averaged yards per attempt and quarterback rating. We used max for the longest throw variable. We experimented with taking out longest throw because we didn’t think that it was too influential in how well a qb performed or the likelihood of them winning mvp which follows from their performance. The dataset cleaning and manipulation is below.
+
+
+
+```{r}
+library(tidyverse)
+library(ROSE)
+library(tree)
+library(leaps)
+nfl <- read.csv("/Users/meganjohnson/Downloads/nfl-qb-stats/QBStats_all.csv")
+
+nflnew <- nfl %>%
+  group_by(qb,year) %>%
+  mutate(count = n()) %>%
+  filter(count > 5,!(year %in% c(1998,2005,2006,2012)))
+  
+
+nflnew$lg <- as.numeric(parse_number(as.character(nflnew$lg)))
+nflnew$qb <- as.character(nflnew$qb)
+nflnew$int <- as.numeric(as.character(nflnew$int))
+
+nflnew <- nflnew %>%
+  mutate(name_year = paste(qb,year,sep="_"))
+
+
+
+nflnew <- nflnew %>% 
+ group_by(name_year) %>% 
+ summarize(total_attempt = sum(att),
+           total_completion = sum(cmp),
+           total_yards = sum(yds),
+           avg_ypa = mean(ypa),
+           total_td = sum(td),
+           total_int = sum(int),
+           max_longest_throw = max(lg),
+           total_sack = sum(sack),
+           total_loss = sum(loss),
+           avg_rating = mean(rate),
+           total_points = sum(game_points))
+
+
+nflnew <- nflnew %>%
+  mutate(mvp = case_when(str_detect(name_year, "Ryan_2016") ~ 1,
+                         str_detect(name_year, "Newton_2015") ~ 1,
+                         str_detect(name_year, "Rodgers_2014") ~ 1,
+                         str_detect(name_year, "Manning_2013") ~ 1,
+                         str_detect(name_year, "Rodgers_2011") ~ 1,
+                         str_detect(name_year, "Brady_2010") ~ 1,
+                         str_detect(name_year, "Manning_2009") ~ 1,
+                         str_detect(name_year, "Manning_2008") ~ 1,
+                         str_detect(name_year, "Brady_2007") ~ 1,
+                         str_detect(name_year, "Manning_2004") ~ 1,
+                         str_detect(name_year, "McNair_2003") ~ 1,
+                         str_detect(name_year, "Manning_2003") ~ 1,
+                         str_detect(name_year, "Gannon_2002") ~ 1,
+                         str_detect(name_year, "Warner_2001") ~ 1,
+                         str_detect(name_year, "Warner_1999") ~ 1,
+                         str_detect(name_year, "Favre_1997") ~ 1,
+                         str_detect(name_year, "Farve_1996") ~ 1,
+                        TRUE ~ 0))
+
+nflnew[241:250, "mvp"] = 0
+
+
+```
+
+
+##Data Exploration
+
+```{r}
+sum(nflnew$mvp==1)/length(nflnew$mvp)
+```
+Only about 2% of the records are positive.
+
+```{r}
+cor(nflnew[-1])
+
+```
+A few of the variables have very high correlation, which could point to lack of independence. For example, total attempts and total completion are very highly correlated and domain knowledge reveals that you have to attempt a pass in order to complete a pass. The only negatively correlated variables are average rating and total interceptions. It is interesting that there are very minor negative correlations between mvp and total interceptions and total sack. Also interesting is the relatively low correlations with the response variable mvp. The variable with the highest correlation with the response variable is total touchdowns. 
+
+Average rating is somewhat a measure of all of the other predictor variables combined. It has fairly high correlation with average yards per attempt and total touchdowns, both of which make sense when domain knowledge is applied. However, while average rating is one of the most correlated variables with mvp, the correlation of .28 is still fairly low.
+
+```{r}
+library(ggplot2)
+
+
+nflfact <- nflnew %>% mutate(mvp = case_when(
+  nflnew$mvp == 1 ~ "won",
+  nflnew$mvp == 0 ~ "lost"))
+
+nflfact$mvp = as.factor(nflfact$mvp)
+
+ggplot(nflfact, aes(x = total_attempt)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = total_completion)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = total_yards)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+
+ggplot(nflfact, aes(x = avg_ypa)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = total_td)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = total_int)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = max_longest_throw)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = total_sack)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = total_loss)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = avg_rating)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+ggplot(nflfact, aes(x = total_points)) + geom_histogram(aes(color = mvp, fill = mvp),
+                         alpha = 0.5, position = "identity") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800"))
+
+```
+Of the distributions for each variable colored by MVP, the total points, total yards, and total touchdowns show the largest discrepancy between players that won and players that lost. The variables are relatively consistent with the variables showing high correlation with MVP. These variables may prove to be the most useful in predicting MVP.
+
+
+##Models and Predictions
+
+Because of the low number of positive observations in our dataset, we expected the models to underpredict positives. We used oversampling to see how changing the percentage of the data points with mvp = 1 would effect the test error rate. We held constant the proportion of the data that was going to the training set and the proportion going into the test set. We first split the data for the training and test set 80/20 and then oversampled the training set so that 10% of the observations would be mvp=1. We did not oversample the test set so we could evaluate model performance using the original data.
+
+We bootstrapped a decision tree 1000 times, splitting a new train and test set every time, while also re-oversampling the training set every time.
+
+```{r}
+set.seed(1)
+nflnew$mvp = as.factor(nflnew$mvp)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.1,N=566)$data
+  
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+  
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+mean.1 <- mean(misclassification_error)
+neg.1 <- mean(false_negative_error)
+mean(misclassification_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+This procedure resulted in an overall misclassification rate of .03, with a false positive rate of .02 and false negative rate of .012. We realized that the false negative rate is the most informative statistic for our purposes. Because of the small number of positives in our dataset, we want the model to be able to predict positives as accurately as possible. The false negative rate is fairly low, but we wanted to see if it could be improved. Next, we ran a bootstrapped decision tree model 3 more times, adjusting the oversampling percentage so that 30%, 50%, 70%, and 90% of the training data is mvp=1. The test set still uses original data.
+
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+
+  tree.nfl=tree(mvp~.-name_year,data.train)
+
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+mean.0 <- mean(misclassification_error)
+neg.0 <- mean(false_negative_error)
+mean(misclassification_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+
+
+Here we have 80% of the data going into the training set, with training set being 30% mvp = 1.
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.3,N=566)$data
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+mean.3 <- mean(misclassification_error)
+neg.3 <- mean(false_negative_error)
+mean(misclassification_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+Here we have 80% of the data going into the training set, with training set being 50% mvp = 1.
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.5,N=566)$data
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+
+  tree.pred=predict(tree.nfl,data.test,type="class")
+
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+mean.5 <- mean(misclassification_error)
+neg.5 <- mean(false_negative_error)
+mean(misclassification_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+Here we have 80% of the data going into the training set, with training set being 70% mvp = 1.
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.7,N=566)$data
+
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+
+  tree.pred=predict(tree.nfl,data.test,type="class")
+
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+mean.7 <- mean(misclassification_error)
+neg.7 <- mean(false_negative_error)
+mean(misclassification_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+Here we have 80% of the data going into the training set, with training set being 90% mvp = 1.
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.9,N=566)$data
+
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+  
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+mean.9 <- mean(misclassification_error)
+neg.9 <- mean(false_negative_error)
+mean(misclassification_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+
+
+```{r}
+my_data_train_means <- data.frame("Oversampling_Percentage_on_Training_Set" = c(".0",".1", ".3", ".5", ".7", ".9"), "Misclassification_Error" = c(mean.0, mean.1, mean.3, mean.5, mean.7, mean.9))
+
+my_data_train_neg <- data.frame("Oversampling_Percentage_on_Training_Set" = c(".0",".1", ".3", ".5", ".7", ".9"), "False_Negative" = c(neg.0, neg.1, neg.3, neg.5, neg.7, neg.9))
+```
+
+```{r}
+my_data_train_means %>% ggplot(aes(x = Oversampling_Percentage_on_Training_Set, y = Misclassification_Error)) + geom_col()
+my_data_train_neg %>% ggplot(aes(x = Oversampling_Percentage_on_Training_Set, y = False_Negative)) + geom_col()
+```
+
+
+Note: .0 means no oversampling was performed on the dataset, values come from the original dataset. As the percentage of oversampling increases, the false negative rate remains fairly constant, while the overall misclassification rate increases. As the levels of oversampling increase, the false negative rate does decrease. For our purposes, it appears that a 10% oversampled training set provides the best tradeoff between low false negative and low overall error rates. Additionally, this low level of oversampling does not distort the training set too far away from the original dataset. This makes sense that the overall misclassification rate increases as oversampling increases. We are testing the model built on a dataset with mostly mvp=1 on a dataset that has very few mvp=1. The model will overpredict mvp=1 because that is what it has been trained on. This can be seen as the false positive rate increases as the oversampling percentage increases while the false negative rate remains fairly constant. 
+
+Now let's see what happens when we hold the sampling mvp = 1 percentage at 10% and change how much of the data is split into test and training sets.
+
+Here we have 40% of the data going into the training set, with training set being 10% mvp = 1.
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.4))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.1,N=283)$data
+
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+  
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+meantrainsize.4 <- mean(misclassification_error)
+negtrainsize.4 <- mean(false_negative_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+Here we have 60% of the data going into the training set, with training set being 10% mvp = 1.
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.6))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.1,N=424)$data
+
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+  
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+meantrainsize.6 <- mean(misclassification_error)
+negtrainsize.6 <- mean(false_negative_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+Here we have 60% of the data going into the training set, with training set being 10% mvp = 1.
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.1,N=566)$data
+
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+  
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+meantrainsize.8 <- mean(misclassification_error)
+negtrainsize.8 <- mean(false_negative_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+Here we have 90% of the data going into the training set, with training set being 10% mvp = 1.
+
+```{r}
+set.seed(1)
+
+misclassification_error <- rep(NA,1000)
+false_positive_error <- rep(NA,1000)
+false_negative_error = rep(NA,1000)
+
+for (i in 1:1000){
+  train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.9))
+  data.train <- nflnew[train,]
+  data.test <- nflnew[-train,]
+  data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.1,N=637)$data
+
+  tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+
+  tree.pred=predict(tree.nfl,data.test,type="class")
+  misclassification_error[i] = mean(tree.pred != data.test$mvp)
+  false_positive_error[i] = mean(tree.pred==1 & data.test$mvp==0)
+  false_negative_error[i] = mean(tree.pred==0 & data.test$mvp==1)
+}
+
+meantrainsize.9 <- mean(misclassification_error)
+negtrainsize.9 <- mean(false_negative_error)
+mean(false_positive_error)
+mean(false_negative_error)
+```
+
+The 80% sampling rate with 10% mvp = 1 was created above.
+
+```{r}
+my_data_trainsize <- data.frame("Training_Proportion" = c(".4", ".6", ".8",".9"), "Misclassification_Error" = c(meantrainsize.4, meantrainsize.6, meantrainsize.8,meantrainsize.9))
+
+neg_trainsize <- data.frame("Training_Proportion" = c(".4", ".6", ".8",".9"), "False_Negative" = c(negtrainsize.4, negtrainsize.6, negtrainsize.8, negtrainsize.9))
+```
+
+```{r}
+my_data_trainsize %>% ggplot(aes(x = Training_Proportion, y = Misclassification_Error)) + geom_col()
+
+neg_trainsize %>% ggplot(aes(x = Training_Proportion, y = False_Negative)) + geom_col()
+```
+
+From this comparision, the lowest false negative error with a decision tree can be obtained using an 90/10 training/test set split with a 10% oversampled training set. This provides a false negative error of 0.0097 and a misclassification rate of 0.0335. This model might be able to be improved through pruning.
+
+
+```{r}
+set.seed(1)
+train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+data.train <- nflnew[train,]
+data.test <- nflnew[-train,]
+
+  
+data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.1,                             N=566)$data
+tree.nfl=tree(mvp~.-name_year,data_balanced_both,method="class")
+summary(tree.nfl)
+
+cv.nfl <- cv.tree(tree.nfl, FUN = prune.misclass)
+plot(cv.nfl$size, cv.nfl$dev, type = 'b')
+
+preds <- predict(tree.nfl, newdata = data.test, type = "class")
+sum(preds != data.test$mvp)/length(preds)
+sum(preds==0 & data.test$mvp==1)/length(preds)
+  
+prune.nfl = prune.tree(tree.nfl, best = 4)
+prune.preds <- predict(prune.nfl, newdata = data.test, type = "class")
+summary(prune.nfl)
+sum(prune.preds != data.test$mvp)/length(prune.preds)
+sum(prune.preds==0 & data.test$mvp==1)/length(prune.preds)
+```
+
+The tree with 4 terminal nodes provides the lowest cross-validated error rate. The pruned tree provided a higher misclassification rate than the unpruned tree but it provided a false negative rate of zero. By this measure, the pruned trees are better than the fully grown out tree. This is a result of mitigating the overfitting (reducing the variance and flexibility) of the model so that it is more generalizable. The model is somewhat biased towards classifying the data as mvp=0 because of the sheer number of mvp=0 records in the dataset. Ideally, we would be able to lower the misclassification rate to below 3% as that is the error rate that would be obtained if every record was predicted to be mvp=0. 
+
+
+```{r}
+summary(prune.nfl)
+plot(prune.nfl)
+text(prune.nfl, pretty = 0)
+
+```
+
+
+The variables that were selected for the desicion tree were total points, avg rating, and total loss. The first split is based off of average rating which was a variable that showed high separation between the distributions of mvp and non-mvp players during variable exploration, as well as a high correlation with mvp. The total points variable choice also make sense for the same reasons. Total loss, however, did not show a lot of separation or a high correlation. Interestingly, the variable with the highest correlation with mvp, total touchdowns, was not included as a split in the tree.
+
+
+Next we will build a logistic regression model and compare the error rates and variables chosen to the tree model built previously.
+
+## Logistic Regression
+
+Here, again, we will compare the test error among different training/test splits. We will also compare the results between the original and the oversampled data to determine the best model. The regression model will be run using the same variables that the pruned tree chose. This model simpler returned the same test error rate as the full model.
+
+```{r}
+set.seed(2)
+train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.8))
+data.train <- nflnew[train,]
+data.test <- nflnew[-train,]
+data.train <- data.train[-1]
+data.test <- data.test[-1]
+  
+data_balanced_both <- ovun.sample(mvp ~ ., data = data.train, method = "both", p=0.1,N=566)$data
+
+glm.fits=glm(mvp~.,data=data.train,family=binomial)
+glm.probs=predict(glm.fits,data.test,type="response")
+
+glm.pred=rep(0,142)
+glm.pred[glm.probs >.5]=1
+table(glm.pred,data.test$mvp)
+mean(glm.pred!=data.test$mvp)
+mean(glm.pred==0 & data.test$mvp==1)
+```
+
+Simpler model with same test error/false positive rate.
+
+```{r}
+set.seed(2)
+
+glm.fits=glm(mvp~avg_rating+total_points+total_loss,data=data.train,family=binomial)
+glm.prob=predict(glm.fits,data.test,type="response")
+
+glm.preds=rep(0,142)
+glm.preds[glm.prob >.5]=1
+table(glm.preds,data.test$mvp)
+meantrainsize.8 = mean(glm.preds!=data.test$mvp)
+negtrainsize.8 = mean(glm.preds==0 & data.test$mvp==1)
+meantrainsize.8
+negtrainsize.8
+```
+
+This rate is already good, but let's test to see if oversampling is able to lower it.
+
+```{r}
+
+set.seed(2)
+
+glm.fits=glm(mvp~avg_rating+total_points+total_loss,data=data_balanced_both,family=binomial)
+glm.prob=predict(glm.fits,data.test,type="response")
+
+glm.preds=rep(0,142)
+glm.preds[glm.prob >.5]=1
+table(glm.preds,data.test$mvp)
+mean(glm.preds!=data.test$mvp)
+mean(glm.preds==0 & data.test$mvp==1)
+
+
+```
+
+Oversampling does lower the false negative rate to 0, but it raises the overall misclassification rate. Because the false negative rate is already so low, the model built on the original data is more useful because it has a lower overall classification rate.
+
+```{r}
+set.seed(2)
+train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.9))
+data.train <- nflnew[train,]
+data.test <- nflnew[-train,]
+data.train <- data.train[-1]
+data.test <- data.test[-1]
+
+glm.fits=glm(mvp~avg_rating+total_points+total_loss,data=data.train,family=binomial)
+glm.prob=predict(glm.fits,data.test,type="response")
+
+glm.preds=rep(0,71)
+glm.preds[glm.prob >.5]=1
+table(glm.preds,data.test$mvp)
+meantrainsize.9 = mean(glm.preds!=data.test$mvp)
+negtrainsize.9 = mean(glm.preds==0 & data.test$mvp==1)
+```
+
+```{r}
+set.seed(2)
+train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.6))
+data.train <- nflnew[train,]
+data.test <- nflnew[-train,]
+data.train <- data.train[-1]
+data.test <- data.test[-1]
+
+glm.fits=glm(mvp~avg_rating+total_points+total_loss,data=data.train,family=binomial)
+glm.prob=predict(glm.fits,data.test,type="response")
+
+glm.preds=rep(0,284)
+glm.preds[glm.prob >.5]=1
+table(glm.preds,data.test$mvp)
+meantrainsize.6 = mean(glm.preds!=data.test$mvp)
+negtrainsize.6 = mean(glm.preds==0 & data.test$mvp==1)
+```
+
+```{r}
+set.seed(2)
+train <- sample(1:nrow(nflnew), size = floor(nrow(nflnew)*.4))
+data.train <- nflnew[train,]
+data.test <- nflnew[-train,]
+data.train <- data.train[-1]
+data.test <- data.test[-1]
+
+glm.fits=glm(mvp~avg_rating+total_points+total_loss,data=data.train,family=binomial)
+glm.prob=predict(glm.fits,data.test,type="response")
+
+glm.preds=rep(0,425)
+glm.preds[glm.prob >.5]=1
+table(glm.preds,data.test$mvp)
+meantrainsize.4 = mean(glm.preds!=data.test$mvp)
+negtrainsize.4 = mean(glm.preds==0 & data.test$mvp==1)
+```
+
+```{r}
+my_data_trainsize <- data.frame("Training_Proportion" = c(".4", ".6", ".8",".9"), "Misclassification_Error" = c(meantrainsize.4, meantrainsize.6, meantrainsize.8,meantrainsize.9))
+
+neg_trainsize <- data.frame("Training_Proportion" = c(".4", ".6", ".8",".9"), "False_Negative" = c(negtrainsize.4, negtrainsize.6, negtrainsize.8, negtrainsize.9))
+```
+
+```{r}
+my_data_trainsize %>% ggplot(aes(x = Training_Proportion, y = Misclassification_Error)) + geom_col()
+
+neg_trainsize %>% ggplot(aes(x = Training_Proportion, y = False_Negative)) + geom_col()
+```
+
+Overall, the logistic regression model appears to predict mvp much better than the bagging models. Of the regression models, the test/training split of 20/80 has the lowest test error and false negative rate of all of the splits. The reduced model with three predictors, using the original dataset, and a 20/80 split produced a test error of .007 for both the false negative and the overall misclassification rate.
